@@ -1,91 +1,200 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import config
+import socket
+from threading import Thread
+import json
+import time
+import keyboard
+import winsound
+
+sock = None
+
+is_running = False
+
+thread1 = None
+thread2 = None
+thread3 = None
+
+
+def log(log):
+    try:
+        logs.insert("end",log + "\n")
+    except:
+        logs.insert("end", "连接断开!")
+        logs.see(ttk.END)
+
+
+def disabled():
+    global is_running
+
+    is_running = True
+
+    status_text.set("已连接")
+    
+    disConnectBtn.pack(side=ttk.RIGHT, padx=0, pady=3)
+    connectBtn.pack_forget()
+    roomID.config(state="disabled")
+    connectBtn.config(state="disabled")
+
+def enabled():
+    global is_running
+    is_running = False
+    status_text.set("未连接")
+    disConnectBtn.pack_forget()
+    connectBtn.pack(side=ttk.RIGHT, padx=0, pady=3)
+    roomID.config(state="normal")
+    connectBtn.config(state="normal")
+
+
+def disConnect():
+    global is_running
+    is_running = False
+    sock.close()
+    keyboard.unhook_all()
+
+    thread1.join()
+    thread2.join()
+    
+    enabled()
+
+    log("已退出所有线程")
+
+    
+
+
+def send(sock, message):
+    print(json.dumps(message))
+    try:
+        sock.sendall(json.dumps(message).encode("utf-8"))
+    except:
+        log(message)
+
+def receive(sock):
+    while True:
+        try:
+            data = sock.recv(1024)
+            if not data:
+                log("已断开连接")
+                enabled()
+                break
+
+            data = data.decode().replace("'", '"')
+            msg = json.loads(data)
+            
+            if msg['type'] == 'heartbeat':
+                log("与服务器通讯正常……")
+            
+            elif msg['type'] == 'notify':
+                # 播放一段音频
+                log('收到notify')
+                winsound.PlaySound("success.wav", winsound.SND_FILENAME|winsound.SND_ASYNC)
+
+        except:
+            # enabled()
+            break
+    
+
+def heartbeat(sock, id):
+    while True:
+        if is_running == False:
+            break
+        send(sock, {'type': 'heartbeat', 'roomid': id})
+        time.sleep(3)
+
+
+def listen_keys(sock, id):
+    while True:
+        if is_running == False:
+            break
+        keyboard.wait(config.get_config("keys", "key"))
+        send(sock, {'type': 'notify', 'roomid': id})
+
+
+
+
+
+def connect():
+    disabled()
+    id = roomID.get()
+    
+    log(f"ROOMID为:{id}")
+    global sock, thread1, thread2, thread3
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect((config.get_config("settings", "SERVER_IP"), int(config.get_config("settings", "SERVER_PORT"))))
+
+        
+        # 初始化
+        send(sock, {'type': 'init', 'roomid': id})
+        log("初始化连接中……")
+
+
+        thread1 = Thread(target=receive, args=(sock,))
+        thread1.start()
+        log("消息接收已启动")
+
+        thread2 = Thread(target=heartbeat, args=(sock,id))
+        thread2.start()
+        log("心跳检测已启动")
+
+        thread3 = Thread(target=listen_keys, args=(sock,id))
+        thread3.start()
+        log("键盘监听已启动")
+
+    except:
+        log("断开连接")
+        enabled()
+
+
 
 def init_config():
-    # 初始化卡单
-    kd_hotkey_input.config(state="normal")
-    kd_hotkey_input.insert(0, config.get_config("keys", "kd"))
-    kd_hotkey_input.config(state="disabled")
+    # 初始化ROOMID
+    roomID.insert(0, config.get_config("settings", "ROOMID"))
 
-    # 初始化卡单时间
-    kd_time_input.config(state="normal")
-    kd_time_input.insert(0, config.get_config("settings", "SUSPEND_TIME"))
-    kd_time_input.config(state="disabled")
-
-    # 初始化杀进程
-    kill_gta_input.config(state="normal")
-    kill_gta_input.insert(0, config.get_config("keys", "kill"))
-    kill_gta_input.config(state="disabled")
-
-
-root = ttk.Window(title="GTAOTools - 大鸟转转转酒吧洛圣都分鸟",
+root = ttk.Window(title="GTA_Notify | enjoy it!",
                   themename="superhero",
-                  size=(800,600),
-                  position=(800,300),
-                  minsize=(100,200),
-                  maxsize=(2560,1440))
+                  size=(390,665),
+                  position=(800,300))
 
-# 运行状态， 默认未运行，需等待监听线程启动成功后修改
-listen_status = ttk.Label(root, text="未运行", bootstyle=WARNING)
-listen_status.place(y=0)
+# 按键监听线程状态显示
+listener_status = False
+listener_thread = None
+status_text = ttk.StringVar(root, value="未连接")
 
-# 卡单相关
-kd_label_frame = ttk.LabelFrame(text="卡单相关")
-kd_label_frame.place(x=5,y=25, width=380, height=150)
+status_label = ttk.Label(root, textvariable=status_text, bootstyle=WARNING)
+status_label.place(x=0, y=0, width=50, height=20)
 
+roomIDFrameLabel = ttk.LabelFrame(text="房间信息")
+roomIDFrameLabel.place(x=5,y=25, width=380, height=80)
 
-kd1 = ttk.Frame(kd_label_frame)
-kd1.place(x=0, y=0, width=350, height=60)
+roomIDFrame = ttk.Frame(roomIDFrameLabel)
+roomIDFrame.place(x=0, y=0, width=350, height=50)
 
-kd_hotkey_label = ttk.Label(kd1, text="卡单快捷键：", bootstyle=INFO)
-kd_hotkey_label.pack(side=ttk.LEFT, padx=5, pady=5)
+roomIDLabel = ttk.Label(roomIDFrame, text="ROOM ID: ", bootstyle=INFO)
+roomIDLabel.pack(side=ttk.LEFT, padx=5, pady=5)
 
-kd_hotkey_btn = ttk.Button(kd1, text="修改")
-kd_hotkey_btn.pack(side=ttk.RIGHT, padx=0, pady=3)
+connectBtn = ttk.Button(roomIDFrame, text="连接", command=connect, bootstyle=SUCCESS)
+connectBtn.pack(side=ttk.RIGHT, padx=0, pady=3)
 
-kd_hotkey_input = ttk.Entry(kd1)
-kd_hotkey_input.pack(side=ttk.RIGHT, padx=0, pady=5)
-kd_hotkey_input.config(state="disabled")
+disConnectBtn = ttk.Button(roomIDFrame, text="断开", command=disConnect, bootstyle=DANGER)
 
 
+roomID = ttk.Entry(roomIDFrame)
+roomID.pack(side=ttk.RIGHT, padx=0, pady=5)
 
-kd2 = ttk.Frame(kd_label_frame)
-kd2.place(x=0, y=60, width=350, height=60)
-
-kd_time_label = ttk.Label(kd2, text="卡单时间：", bootstyle=INFO)
-kd_time_label.pack(side=ttk.LEFT, padx=5, pady=5)
-
-kd_time_btn = ttk.Button(kd2, text="修改")
-kd_time_btn.pack(side=ttk.RIGHT, padx=0, pady=3)
-
-kd_time_input = ttk.Entry(kd2)
-kd_time_input.pack(side=ttk.RIGHT, padx=0, pady=5)
-kd_time_input.config(state="disabled")
+test = ttk.Label(root, text="和小伙伴输入相同的ROOMID\n然后按下F5即可让相同ROOMID的朋友听到提示音")
+test.pack(side=ttk.BOTTOM, padx=2, pady=5)
 
 
 
-
-# 杀进程相关
-kill_gta_label_frame = ttk.LabelFrame(text="杀进程相关")
-kill_gta_label_frame.place(x=5,y=190, width=380, height=90)
-
-k1 = ttk.Frame(kill_gta_label_frame)
-k1.place(x=0, y=0, width=350, height=60)
-
-kill_gta_label = ttk.Label(k1, text="杀进程快捷键：", bootstyle=INFO)
-kill_gta_label.pack(side=ttk.LEFT, padx=5, pady=5)
-
-
-kill_gta_btn = ttk.Button(k1, text="修改")
-kill_gta_btn.pack(side=ttk.RIGHT, padx=0, pady=3)
-
-kill_gta_input = ttk.Entry(k1)
-kill_gta_input.pack(side=ttk.RIGHT, padx=0, pady=5)
-kill_gta_input.config(state="disabled")
+ttk.Label(root, text="实时日志", bootstyle=SUCCESS).place(x=3, y=115)
+logs = ttk.Text(root, width=41, height=23, wrap="word")
+logs.place(x=3, y=140)
 
 
 
 if __name__ == "__main__":
     init_config()
+    log("等待连接……")
     root.mainloop()
