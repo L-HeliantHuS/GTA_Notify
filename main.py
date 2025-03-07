@@ -6,6 +6,7 @@ from threading import Thread
 import json
 import time
 import keyboard
+from pynput import keyboard
 import winsound
 
 sock = None
@@ -14,7 +15,6 @@ is_running = False
 
 thread1 = None
 thread2 = None
-thread3 = None
 
 
 def log(log):
@@ -51,7 +51,6 @@ def disConnect():
     global is_running
     is_running = False
     sock.close()
-    keyboard.unhook_all()
 
     thread1.join()
     thread2.join()
@@ -103,14 +102,18 @@ def heartbeat(sock, id):
         time.sleep(3)
 
 
+
+def on_press(key, sock, id):
+    try:
+        if key == keyboard.Key.f5:
+            log('检测到按下f5')
+            send(sock, {'type': 'notify', 'roomid': id})
+    except AttributeError:
+        pass
+
 def listen_keys(sock, id):
-    while True:
-        if is_running == False:
-            break
-        keyboard.wait(config.get_config("keys", "key"))
-        send(sock, {'type': 'notify', 'roomid': id})
-
-
+    with keyboard.Listener(on_press=lambda key: on_press(key, sock, id)) as listener:
+        listener.join()
 
 
 
@@ -138,8 +141,7 @@ def connect():
         thread2.start()
         log("心跳检测已启动")
 
-        thread3 = Thread(target=listen_keys, args=(sock,id))
-        thread3.start()
+        Thread(target=listen_keys, args=(sock,id)).start()
         log("键盘监听已启动")
 
     except:
