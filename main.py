@@ -49,17 +49,22 @@ def enabled():
 def disConnect():
     global is_running
     is_running = False
-    sock.close()
 
-    thread1.join()
-    thread2.join()
+
+    if  sock is not None:
+        sock.close()
+    if thread1 is not None:
+        thread1.join()
+    if thread2 is not None:
+        thread2.join()
+
+
     
     enabled()
 
     log("已退出所有线程")
 
     
-
 
 def send(sock, message):
     print(json.dumps(message))
@@ -158,7 +163,6 @@ def init_config():
 
 
 def on_closing():
-    global listener
     disConnect()
     listener.stop()
     root.destroy()
